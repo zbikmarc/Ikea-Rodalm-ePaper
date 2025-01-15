@@ -1,0 +1,627 @@
+substitutions:
+  friendly_name: "ePaper"
+  time_zone: "Europe/Warsaw"
+  sleep_time: "30min"
+# Home Assistant entitites:
+  ha_disable_update: input_boolean.epaper_disable_update
+  ha_disable_deep_sleep: input_boolean.epaper_disable_deep_sleep
+  ha_wake_times: sensor.epaper_wake_times
+
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/zbikmarc/esphome.git
+      ref: waveshare_7in5bv3bwr_fix
+    refresh: 1min
+    components: [ waveshare_epaper ]
+
+esphome:
+  name: epaper
+  friendly_name: "${friendly_name}"
+  on_boot:
+      priority: -100.0
+      then:
+        - wait_until:
+            condition: api.connected
+        - script.execute: get_data_then_refresh_screen
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "ZUQoCNGnQHf+shW69uUkezB2FJiT7nVv19VSJOjaNdg="
+
+ota:
+  - platform: esphome
+    password: "0fd89b4eaf365fa807ec44b41705145e"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  manual_ip: 
+    static_ip: "192.168.64.104"
+    subnet: 255.255.255.0
+    gateway: 192.168.64.1
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Epaper Fallback Hotspot"
+    password: "H3AGFkSEPNad"
+
+captive_portal:
+
+globals:
+  - id: data_updated
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: wake_time_helper_updated
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: recorded_display_refresh
+    type: int
+    restore_value: yes
+    initial_value: '0'
+
+sensor:
+  # Non-weather forecast related sensors
+  - platform: homeassistant
+    id: out_temp
+    entity_id: sensor.outdoor_temperature
+    state_class: measurement
+    device_class: temperature
+    on_value:
+      then:
+         - lambda: 'id(data_updated) = true;'
+
+  - platform: homeassistant
+    id: caqi
+    entity_id: sensor.pisary_caqi
+    state_class: measurement
+    on_value:
+      then:
+         - lambda: 'id(data_updated) = true;'
+
+  - platform: homeassistant
+    id: pm25
+    entity_id: sensor.pisary_pm2_5
+    state_class: measurement
+    on_value:
+      then:
+         - lambda: 'id(data_updated) = true;'
+
+  - platform: homeassistant
+    id: humidity
+    entity_id: sensor.pisary_humidity
+    state_class: measurement
+    unit_of_measurement: "%"
+    filters:
+    - round_to_multiple_of: 1
+    on_value:
+      then:
+         - lambda: 'id(data_updated) = true;'
+
+  # Create sensors for monitoring the board remotely.
+  - platform: template
+    name: "${friendly_name} Display Last Update"
+    device_class: timestamp
+    entity_category: "diagnostic"
+    id: display_last_update
+    update_interval: 3s
+
+  - platform: template
+    name: "${friendly_name} Recorded Display Refresh"
+    accuracy_decimals: 0
+    unit_of_measurement: "Refreshes"
+    state_class: "total_increasing"
+    entity_category: "diagnostic"
+    lambda: 'return id(recorded_display_refresh);'
+    update_interval: 3s
+
+  - platform: homeassistant
+    name: "${friendly_name} Wake Time Helper"
+    id: wake_time_helper
+    entity_id: '${ha_wake_times}'
+    attribute: wake_time_helper
+    unit_of_measurement: seconds
+    on_value:
+      then:
+         - lambda: 'id(wake_time_helper_updated) = true;'
+
+binary_sensor:
+  - platform: homeassistant # This sensor is for Home Assistant helper switch to disable deep sleep, remove if not used
+    id: deep_sleep_disable_ha
+    name: "${friendly_name} Disable Deep Sleep HA"
+    entity_id: '${ha_disable_deep_sleep}'
+
+text_sensor:
+  # Dzień tygodnia
+  - platform: homeassistant
+    entity_id: sensor.dzien_tygodnia
+    id: dzien_tygodnia
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  # Dzień tygodnia jutro
+  - platform: homeassistant
+    entity_id: sensor.dzien_tygodnia_jutro
+    id: dzien_tygodnia_jutro
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  # Dzień tygodnia pojutrze
+  - platform: homeassistant
+    entity_id: sensor.dzien_tygodnia_pojutrze
+    id: dzien_tygodnia_pojutrze
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  # Miesiąc
+  - platform: homeassistant
+    entity_id: sensor.miesiac
+    id: miesiac
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  # Dzień
+  - platform: homeassistant
+    entity_id: sensor.dzien_miesiaca
+    id: dzien_miesiaca
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  # Weather data
+  - platform: homeassistant
+    entity_id: sensor.weather_data
+    attribute: weather_condition_now
+    id: weather_condition_now
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  - platform: homeassistant
+    entity_id: sensor.weather_data
+    attribute: temperature
+    id: weather_temperature_now
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  - platform: homeassistant
+    entity_id: sensor.weather_data
+    attribute: weather_temperature_0
+    id: weather_temperature_0
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  - platform: homeassistant
+    entity_id: sensor.weather_data
+    attribute: weather_temperature_low_0
+    id: weather_temperature_low_0
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  - platform: homeassistant
+    entity_id: sensor.weather_data
+    attribute: weather_condition_0
+    id: weather_condition_0
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  - platform: homeassistant
+    entity_id: sensor.weather_data
+    attribute: weather_temperature_1
+    id: weather_temperature_1
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  - platform: homeassistant
+    entity_id: sensor.weather_data
+    attribute: weather_temperature_low_1
+    id: weather_temperature_low_1
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  - platform: homeassistant
+    entity_id: sensor.weather_data
+    attribute: weather_condition_1
+    id: weather_condition_1
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  - platform: homeassistant
+    entity_id: sensor.weather_data
+    attribute: weather_temperature_2
+    id: weather_temperature_2
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  - platform: homeassistant
+    entity_id: sensor.weather_data
+    attribute: weather_temperature_low_2
+    id: weather_temperature_low_2
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+  - platform: homeassistant
+    entity_id: sensor.weather_data
+    attribute: weather_condition_2
+    id: weather_condition_2
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+
+script:
+  - id: get_data_then_refresh_screen
+    mode: restart
+    then:
+      - wait_until:
+          condition:
+            lambda: 'return id(data_updated) == true;'
+          timeout: 60s
+      - if:
+          condition:
+            lambda: 'return id(data_updated) == true;'
+          then:
+            - delay: 10s # Wait a bit longer so all the items are received. Might need to be more.
+            - logger.log: "Sensor data received."
+            - script.execute: refresh_screen
+            - script.execute: deep_sleep_evaluation
+          else:
+            - logger.log: "No new data. Skipping display refresh."
+      - script.execute: deep_sleep_evaluation
+  - id: refresh_screen
+    mode: restart
+    then:
+      - lambda: 'id(recorded_display_refresh) += 1;'
+      - lambda: 'id(display_last_update).publish_state(id(homeassistant_time).now().timestamp);'
+      - logger.log: "Refreshing display..."
+      - component.update: eink_display
+      - lambda: 'id(data_updated) = false;'
+  - id: deep_sleep_evaluation
+    # This dynamic deep sleep script inspired by https://webbinaro.dev/blog/battery-powered-esp-sensors-esphome/
+    # Stolen from https://github.com/trip5/ESPHome-eInk-Boards/blob/main/ESPHome_eink-weatherboard.yaml
+    mode: restart
+    then:
+      - if:
+          condition:
+            - binary_sensor.is_on: deep_sleep_disable_ha # checks Home Assistant Helper
+          then:
+            - logger.log: 'Deep Sleep Disabled.'
+            - script.execute: deep_sleep_disabled_check_refresh_time
+          else:
+            - wait_until:
+                condition:
+                  lambda: 'return (id(wake_time_helper).state >= (6 * 60));'
+            - deep_sleep.enter:
+                id: deep_sleep_control
+                sleep_duration: !lambda return id(wake_time_helper).state * 1000;   #lambdas should return value as ms
+      - delay: 60s
+      - script.execute: deep_sleep_evaluation
+  - id: deep_sleep_disabled_check_refresh_time
+    # This will update the screen on the HA helper schedule(ish) even if Deep Sleep is disabled
+    mode: restart
+    then:
+      - if:
+          condition:
+            - lambda: 'return id(wake_time_helper).state <= 60;'
+          then:
+            - logger.log: 'Time to refresh the screen.'
+            - script.execute: get_data_then_refresh_screen
+time:
+  - platform: homeassistant
+    timezone: "${time_zone}"
+    id: homeassistant_time
+    # on_time: 
+    #   - seconds: 0
+    #     minutes: /30
+    #     then: 
+    #       - if:
+    #           condition:
+    #             lambda: 'return id(data_updated) == true;'
+    #           then: 
+    #             - script.execute: refresh_screen
+
+deep_sleep:
+  id: deep_sleep_control
+  sleep_duration: ${sleep_time}
+
+image:
+  - file: "images/pm2.5_icon_mod.svg"
+    id: pm25_icon
+    resize: 131x96
+    use_transparency: True
+  - file: "images/caqi_icon_mod.svg"
+    id: caqi_icon
+    resize: 131x96
+    use_transparency: True
+  - file: "images/particles.svg"
+    id: particles_icon
+    resize: 64x96
+    use_transparency: True 
+
+font:
+  - file: 'fonts/materialdesignicons-webfont.ttf'
+    id: font_mdi_large
+    size: 196
+    glyphs: &mdi-weather-glyphs
+      - "\U000F0590" # mdi-weather-cloudy
+      - "\U000F0F2F" # mdi-weather-cloudy-alert
+      - "\U000F0E6E" # mdi-weather-cloudy-arrow-right
+      - "\U000F0591" # mdi-weather-fog
+      - "\U000F0592" # mdi-weather-hail
+      - "\U000F0F30" # mdi-weather-hazy
+      - "\U000F0898" # mdi-weather-hurricane
+      - "\U000F0593" # mdi-weather-lightning
+      - "\U000F067E" # mdi-weather-lightning-rainy
+      - "\U000F0594" # mdi-weather-night
+      - "\U000F0F31" # mdi-weather-night-partly-cloudy
+      - "\U000F0595" # mdi-weather-partly-cloudy
+      - "\U000F0F32" # mdi-weather-partly-lightning
+      - "\U000F0F33" # mdi-weather-partly-rainy
+      - "\U000F0F34" # mdi-weather-partly-snowy
+      - "\U000F0F35" # mdi-weather-partly-snowy-rainy
+      - "\U000F0596" # mdi-weather-pouring
+      - "\U000F0597" # mdi-weather-rainy
+      - "\U000F0598" # mdi-weather-snowy
+      - "\U000F0F36" # mdi-weather-snowy-heavy
+      - "\U000F067F" # mdi-weather-snowy-rainy
+      - "\U000F0599" # mdi-weather-sunny
+      - "\U000F0F37" # mdi-weather-sunny-alert
+      - "\U000F14E4" # mdi-weather-sunny-off
+      - "\U000F059A" # mdi-weather-sunset
+      - "\U000F059B" # mdi-weather-sunset-down
+      - "\U000F059C" # mdi-weather-sunset-up
+      - "\U000F0F38" # mdi-weather-tornado
+      - "\U000F059D" # mdi-weather-windy
+      - "\U000F059E" # mdi-weather-windy-variant
+      - "\U000F058E" # water-percent
+
+  - file: 'fonts/materialdesignicons-webfont.ttf'
+    id: font_mdi_medium
+    size: 92
+    glyphs: *mdi-weather-glyphs
+
+  - file: 'fonts/gothamrnd_medium.otf'
+    id: gotham_medium_15
+    size: 15
+    glyphs: &pliterki ['A', 'B', 'C', 'D', 'E',
+       'F', 'G', 'H', 'I', 'J', 'K', 'L', 'Ł', 'M', 'N', 'O', 'P', 'Q', 'R', 'S',
+       'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'Ż', 'Ź', 'Ó', 'Ę', 'Ą', 'Ś', 'Ć', 'Ń', 'a', 'b', 'c', 'd', 'e', 'f',
+       'g', 'h', 'i', 'j', 'k', 'l', 'ł', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't',
+       'u', 'v', 'w', 'x', 'y', 'z','ż', 'ź', 'ę', 'ą', 'ś', 'ć', 'ń', 'ó',
+       '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
+       ' ', ';', ':' , '.', '°', '-', '|', '%', '/',
+       'µ']
+
+  - file: 'fonts/gothamrnd_medium.otf'
+    id: gotham_medium_20
+    size: 20
+    glyphs: *pliterki
+
+  - file: 'fonts/gothamrnd_medium.otf'
+    id: gotham_medium_25
+    size: 25
+    glyphs: *pliterki
+
+  - file: 'fonts/gothamrnd_medium.otf'
+    id: gotham_medium_30
+    size: 30
+    glyphs: *pliterki
+
+  - file: 'fonts/gothamrnd_medium.otf'
+    id: gotham_medium_40
+    size: 40
+    glyphs: *pliterki
+
+  - file: 'fonts/gothamrnd_medium.otf'
+    id: gotham_medium_50
+    size: 50
+    glyphs: *pliterki
+
+  - file: 'fonts/gothamrnd_medium.otf'
+    id: gotham_medium_60
+    size: 60
+    glyphs: *pliterki
+
+  - file: 'fonts/gothamrnd_medium.otf'
+    id: gotham_medium_70
+    size: 70
+    glyphs: *pliterki
+
+  - file: 'fonts/gothamrnd_bold.otf'
+    id: gotham_bold_30
+    size: 30
+    glyphs: *pliterki
+
+  - file: 'fonts/gothamrnd_bold.otf'
+    id: gotham_bold_70
+    size: 70
+    glyphs: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']
+
+  - file: 'fonts/gothamrnd_bold.otf'
+    id: gotham_bold_100
+    size: 100
+    glyphs: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']
+
+color:
+  - id: COLOR_RED
+    red: 100%
+    green: 0%
+    blue: 0%
+    white: 0%
+  - id: color_black
+    red: 100%
+    green: 100%
+    blue: 100%
+    white: 100%
+  - id: color_white
+    red: 0%
+    green: 0%
+    blue: 0%
+    white: 0%
+
+
+spi:
+  clk_pin: GPIO13
+  mosi_pin: GPIO14
+
+
+display:
+  - platform: waveshare_epaper
+    id: eink_display
+    cs_pin:
+      number: GPIO15
+      ignore_strapping_warning: true
+    dc_pin: GPIO27
+    busy_pin:
+      number: GPIO25
+      inverted: True
+    reset_pin: GPIO26
+    model: 7.50in-bv3-BWR
+    update_interval: never
+    rotation: 90
+    lambda: |-
+      int left_1 = it.get_width()/24*5;
+      int center = it.get_width()/2;
+      int right_1 = it.get_width()/24*19;
+
+      // Map weather states to MDI characters.
+      std::map<std::string, std::string> weather_icon_map
+        {
+          {"cloudy", "\U000F0590"},
+          {"cloudy-alert", "\U000F0F2F"},
+          {"cloudy-arrow-right", "\U000F0E6E"},
+          {"fog", "\U000F0591"},
+          {"hail", "\U000F0592"},
+          {"hazy", "\U000F0F30"},
+          {"hurricane", "\U000F0898"},
+          {"lightning", "\U000F0593"},
+          {"lightning-rainy", "\U000F067E"},
+          {"night", "\U000F0594"},
+          {"night-partly-cloudy", "\U000F0F31"},
+          {"partlycloudy", "\U000F0595"},
+          {"partly-lightning", "\U000F0F32"},
+          {"partly-rainy", "\U000F0F33"},
+          {"partly-snowy", "\U000F0F34"},
+          {"partly-snowy-rainy", "\U000F0F35"},
+          {"pouring", "\U000F0596"},
+          {"rainy", "\U000F0597"},
+          {"snowy", "\U000F0598"},
+          {"snowy-heavy", "\U000F0F36"},
+          {"snowy-rainy", "\U000F067F"},
+          {"sunny", "\U000F0599"},
+          {"sunny-alert", "\U000F0F37"},
+          {"sunny-off", "\U000F14E4"},
+          {"sunset", "\U000F059A"},
+          {"sunset-down", "\U000F059B"},
+          {"sunset-up", "\U000F059C"},
+          {"tornado", "\U000F0F38"},
+          {"windy", "\U000F059D"},
+          {"windy-variant", "\U000F059E"},
+        };
+
+      std::map<std::string, std::string> weather_translations
+        {
+          {"cloudy", "Pochmurnie"},
+          {"cloudy-alert", "\U000F0F2F"},
+          {"cloudy-arrow-right", "\U000F0E6E"},
+          {"fog", "Mgła"},
+          {"hail", "Grad"},
+          {"hazy", "Mgliście"},
+          {"hurricane", "\U000F0898"},
+          {"lightning", "Burza"},
+          {"lightning-rainy", "\U000F067E"},
+          {"night", "Pogodna noc"},
+          {"night-partly-cloudy", "Częściowe zachmurzenie"},
+          {"partlycloudy", "Częściowe zachmurzenie"},
+          {"partly-lightning", "\U000F0F32"},
+          {"partly-rainy", "\U000F0F33"},
+          {"partly-snowy", "\U000F0F34"},
+          {"partly-snowy-rainy", "\U000F0F35"},
+          {"pouring", "\U000F0596"},
+          {"rainy", "Deszczowo"},
+          {"snowy", "Śnieg"},
+          {"snowy-heavy", "Mocny śnieg"},
+          {"snowy-rainy", "Śnieg z deszczem"},
+          {"sunny", "Słonecznie"},
+          {"sunny-alert", "\U000F0F37"},
+          {"sunny-off", "\U000F14E4"},
+          {"sunset", "\U000F059A"},
+          {"sunset-down", "\U000F059B"},
+          {"sunset-up", "\U000F059C"},
+          {"tornado", "\U000F0F38"},
+          {"windy", "Wietrznie"},
+          {"windy-variant", "\U000F059E"},
+        };
+
+      it.printf(180,110, id(gotham_bold_100), id(COLOR_RED), TextAlign::BASELINE_RIGHT, "%s", id(dzien_miesiaca).state.c_str());
+      it.printf(180,60, id(gotham_medium_25), TextAlign::BASELINE_LEFT, "%s", id(dzien_tygodnia).state.c_str());
+      it.printf(180,110, id(gotham_medium_60), TextAlign::BASELINE_LEFT, "%s", id(miesiac).state.c_str());
+
+      it.printf(it.get_width()/2, 300, id(font_mdi_large), TextAlign::BASELINE_CENTER, "%s", weather_icon_map[id(weather_condition_now).state.c_str()].c_str());
+      it.printf(it.get_width()/2, 350, id(gotham_medium_25), TextAlign::BASELINE_CENTER, "%s | %.1f°C", weather_translations[id(weather_condition_now).state.c_str()].c_str(), id(out_temp).state);
+
+      it.image(left_1, 452, id(particles_icon), ImageAlign::CENTER);
+      if(id(caqi).state > 75) {
+        it.print(left_1, 452, id(gotham_bold_30), id(COLOR_RED), TextAlign::CENTER, "CAQI");
+        it.printf(left_1, 520, id(gotham_medium_20), id(COLOR_RED), TextAlign::BASELINE_CENTER, "%d", int(id(caqi).state));
+      } else {
+        it.print(left_1, 452, id(gotham_bold_30), TextAlign::CENTER, "CAQI");
+        it.printf(left_1, 520, id(gotham_medium_20), TextAlign::BASELINE_CENTER, "%d", int(id(caqi).state));
+      }
+
+
+      it.print(center, 490, id(font_mdi_medium), TextAlign::BASELINE_CENTER, "\U000F058E");
+      it.printf(center, 520, id(gotham_medium_20), TextAlign::BASELINE_CENTER, "%d %%", int(id(humidity).state));
+
+      it.image(right_1, 452, id(particles_icon), ImageAlign::CENTER);
+      if(id(pm25).state > 3*15){
+        it.print(right_1, 452, id(gotham_bold_30), id(COLOR_RED), TextAlign::CENTER, "PM2.5");
+        it.printf(right_1, 520, id(gotham_medium_20), id(COLOR_RED), TextAlign::BASELINE_CENTER, "%d µg/m", int(id(pm25).state));
+      } else {
+        it.print(right_1, 452, id(gotham_bold_30), TextAlign::CENTER, "PM2.5");
+        it.printf(right_1, 520, id(gotham_medium_20), TextAlign::BASELINE_CENTER, "%d µg/m", int(id(pm25).state));
+      }
+
+
+      it.printf(left_1, 670, id(font_mdi_medium), TextAlign::BASELINE_CENTER, weather_icon_map[id(weather_condition_0).state.c_str()].c_str());
+      it.print(left_1, 690, id(gotham_medium_20), TextAlign::BASELINE_CENTER, "Dzisiaj");
+      it.printf(left_1, 720, id(gotham_medium_20), TextAlign::BASELINE_CENTER, "%s | %s°C", id(weather_temperature_low_0).state.c_str(), id(weather_temperature_0).state.c_str());
+
+      it.printf(center, 670, id(font_mdi_medium), TextAlign::BASELINE_CENTER, weather_icon_map[id(weather_condition_1).state.c_str()].c_str());
+      it.printf(center, 690, id(gotham_medium_20), TextAlign::BASELINE_CENTER, "%s", id(dzien_tygodnia_jutro).state.c_str());
+      it.printf(center, 720, id(gotham_medium_20), TextAlign::BASELINE_CENTER, "%s | %s°C", id(weather_temperature_low_1).state.c_str(), id(weather_temperature_1).state.c_str());
+
+      it.printf(right_1, 670, id(font_mdi_medium), TextAlign::BASELINE_CENTER, weather_icon_map[id(weather_condition_2).state.c_str()].c_str());
+      it.printf(right_1, 690, id(gotham_medium_20), TextAlign::BASELINE_CENTER, "%s", id(dzien_tygodnia_pojutrze).state.c_str());
+      it.printf(right_1, 720, id(gotham_medium_20), TextAlign::BASELINE_CENTER, "%s | %s°C", id(weather_temperature_low_2).state.c_str(), id(weather_temperature_2).state.c_str());
+
+
+      // Refresh Timestamp
+      // Code by EnsconcE from https://community.home-assistant.io/t/esphome-show-time/348903
+      char str[17];
+      time_t currTime = id(homeassistant_time).now().timestamp;
+      strftime(str, sizeof(str), "%H:%M", localtime(&currTime));
+      it.printf(350, 750, id(gotham_medium_15), TextAlign::TOP_CENTER, "REFRESHED AT %s", str);

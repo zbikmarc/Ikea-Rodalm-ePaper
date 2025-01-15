@@ -1,0 +1,116 @@
+sensor:
+  - trigger:
+      platform: time_pattern
+      minutes: "/1"
+    action:
+      - service: weather.get_forecasts
+        data:
+          type: daily
+        target:
+          entity_id: weather.dom
+        response_variable: daily
+    sensor:
+      - name: Weather Data
+        state: "OK"
+        attributes:
+          weather_condition_now: >
+            {% set cond_now = states('weather.dom') %}
+            {% if states('sun.sun') == 'below_horizon' %}
+                {% if cond_now == 'sunny' %} night {% elif cond_now == 'partlycloudy' %} night-partly-cloudy {% else %} {{ cond_now }} {% endif %}
+            {% else %}
+                {{ cond_now }}
+            {% endif %}
+
+          weather_condition_0: >
+            {% set cond0 = daily['weather.dom'].forecast[0].condition %}
+            {% set next_setting = as_timestamp(state_attr('sun.sun', 'next_setting')) %}
+            {% set next_rising = as_timestamp(state_attr('sun.sun', 'next_rising')) %}
+            {% set cond0_time = as_timestamp(daily['weather.dom'].forecast[0].datetime) %}
+            {% if cond0_time < next_rising and next_rising < next_setting %}
+                {% if cond0 == 'sunny' %} night {% elif cond0 == 'partlycloudy' %} night-partly-cloudy {% else %} {{ cond0 }} {% endif %}
+            {% else %}
+                {{ cond0 }}
+            {% endif %}
+          weather_temperature_0: >
+            {{ daily['weather.dom'].forecast[0].temperature }}
+          weather_temperature_low_0: >
+            {{ daily['weather.dom'].forecast[0].templow }}
+          weather_timestamp_0: >
+            {{ as_timestamp(daily['weather.dom'].forecast[0].datetime) | timestamp_custom('%I') | int }} {{ as_timestamp(daily['weather.dom'].forecast[0].datetime) | timestamp_custom('%p') }}
+
+          weather_condition_1: >
+            {% set cond1 = daily['weather.dom'].forecast[1].condition %}
+            {% set next_setting = as_timestamp(state_attr('sun.sun', 'next_setting')) %}
+            {% set next_rising = as_timestamp(state_attr('sun.sun', 'next_rising')) %}
+            {% set cond1_time = as_timestamp(daily['weather.dom'].forecast[1].datetime) %}
+            {% if cond1_time < next_rising and next_rising < next_setting %}
+                {% if cond1 == 'sunny' %} night {% elif cond1 == 'partlycloudy' %} night-partly-cloudy {% else %} {{ cond1 }} {% endif %}
+            {% else %}
+                {{ cond1 }}
+            {% endif %}
+          weather_temperature_1: >
+            {{ daily['weather.dom'].forecast[1].temperature }}
+          weather_temperature_low_1: >
+            {{ daily['weather.dom'].forecast[1].templow }}
+          weather_timestamp_1: >
+            {{ as_timestamp(daily['weather.dom'].forecast[1].datetime) | timestamp_custom('%I') | int }} {{ as_timestamp(daily['weather.dom'].forecast[1].datetime) | timestamp_custom('%p') }}
+
+          weather_condition_2: >
+            {% set cond2 = daily['weather.dom'].forecast[2].condition %}
+            {% set next_setting = as_timestamp(state_attr('sun.sun', 'next_setting')) %}
+            {% set next_rising = as_timestamp(state_attr('sun.sun', 'next_rising')) %}
+            {% set cond2_time = as_timestamp(daily['weather.dom'].forecast[2].datetime) %}
+            {% if cond2_time < next_rising and next_rising < next_setting %}
+                {% if cond2 == 'sunny' %} night {% elif cond2 == 'partlycloudy' %} night-partly-cloudy {% else %} {{ cond2 }} {% endif %}
+            {% else %}
+                {{ cond2 }}
+            {% endif %}
+          weather_temperature_2: >
+            {{ daily['weather.dom'].forecast[2].temperature }}
+          weather_temperature_low_2: >
+            {{ daily['weather.dom'].forecast[2].templow }}
+          weather_timestamp_2: >
+            {{ as_timestamp(daily['weather.dom'].forecast[2].datetime) | timestamp_custom('%I') | int }} {{ as_timestamp(daily['weather.dom'].forecast[2].datetime) | timestamp_custom('%p') }}
+
+  - trigger:
+    - platform: time_pattern
+      minutes: /1
+      variables:
+        waketime: >
+          {%- set offset = 5 %}
+          {%- set waketimes = namespace(schedule = []) %}
+          {%- for x in range(0,24) %}
+          {%- if x < 7 and x%2==0 %}
+          {%- set waketimes.schedule =  waketimes.schedule + [("%02d:%02d" % (x, 0+offset ))] %}
+          {%- elif x < 22 %}
+          {%- set waketimes.schedule =  waketimes.schedule + [("%02d:%02d" % (x, 0+offset ))] %}
+          {%- set waketimes.schedule =  waketimes.schedule + [("%02d:%02d" % (x, 30+offset ))] %}
+          {%- else -%}
+          {%- set waketimes.schedule =  waketimes.schedule + [("%02d:%02d" % (x, 0+offset ))] %}
+          {%- endif %}
+          {%- endfor %}
+          
+          {%- set waketime = namespace(next = "") %}
+          {%- set waketime_all = [] %}
+          {%- for test in waketimes.schedule %}
+            {%- set waketime.next = (now().strftime('%Y-%m-%d') + " " + test|string) %}
+            {%- if (now().strftime('%Y-%m-%d %H:%M:%S')|string|as_datetime) < (waketime.next|as_datetime) %}
+              {%- break %}
+            {%- endif %}
+          {%- endfor %}
+          {%- if (now().strftime('%Y-%m-%d %H:%M:%S')|string|as_datetime) > (waketime.next|as_datetime) %}
+            {%- set waketime.next = (now().strftime('%Y-%m-%d')|string) + " " + (waketimes.schedule[0]|string) %}
+            {%- set waketime_helper = ((as_timestamp(waketime.next|as_datetime + timedelta(days=1)) - as_timestamp(now()|as_datetime))|int(0)) %}
+          {%- else %}
+            {%- set waketime_helper = ((as_timestamp(waketime.next|as_datetime) - as_timestamp(now()|as_datetime))|int(0)) %}
+          {%- endif %}
+          {%- set waketime_all = [waketime.next] + [waketime_helper] + [waketimes.schedule] %}
+          {{waketime_all}}
+    sensor:
+      - name: ePaper Wake Times
+        unique_id: epaper_wake_times
+        state: "{{ this.attributes.next_wake_time | default('Not Available') }}"
+        attributes:
+          wake_times: "{{ waketime[2] | default('Not Available') }}"
+          next_wake_time: "{{ waketime[0] | default(999999) }}"
+          wake_time_helper: "{{ waketime[1] | default('Not Available') }}"
